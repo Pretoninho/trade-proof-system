@@ -28,7 +28,7 @@ from models.backtest import backtest_vol_strategy, performance_metrics
 from models.greeks import delta_call, vega
 from models.risk import position_size
 from models.tracking import create_signal_record, update_trade
-from models.scoring import compute_score
+from models.scoring import compute_score, performance_by_signal
 from storage.database import save_signal, load_signals, DB_FILE
 from dashboard.layout import display_header, display_metrics, display_signal
 from dashboard.charts import (
@@ -375,6 +375,21 @@ if not df_signals.empty:
         if not closed_pnl.empty:
             fig_tr_equity = plot_equity_curve(closed_pnl["pnl"])
             st.pyplot(fig_tr_equity)
+
+            # ── Performance by signal type ─────────────────────────────────────
+            by_sig = performance_by_signal(df_signals)
+            if not by_sig.empty:
+                st.subheader("📈 Performance by signal type")
+                st.dataframe(
+                    by_sig.style.format(
+                        {
+                            "winrate":   "{:.1%}",
+                            "pnl_total": "{:+.2f}",
+                            "pnl_avg":   "{:+.2f}",
+                        }
+                    ),
+                    use_container_width=True,
+                )
     else:
         st.info("No closed trades yet — log a signal and close it to see your scorecard.")
 

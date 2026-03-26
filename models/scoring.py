@@ -6,6 +6,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from models.pnl import pnl_by_signal  # noqa: F401 — re-exported for convenience
+
 
 def compute_score(df: pd.DataFrame) -> dict:
     """Compute a comprehensive performance scorecard from closed trades.
@@ -104,3 +106,22 @@ def compute_score(df: pd.DataFrame) -> dict:
         "profit_factor": profit_factor,
         "expectancy": expectancy,
     }
+
+
+def performance_by_signal(df: pd.DataFrame) -> pd.DataFrame:
+    """Break down performance statistics by signal type.
+
+    Delegates to :func:`models.pnl.pnl_by_signal`; provided here so that
+    callers who already import from ``models.scoring`` can access the
+    breakdown without an extra import.
+
+    Args:
+        df: DataFrame of trade records as returned by
+            :func:`storage.database.load_signals`.  Must contain at least
+            ``"signal"`` and ``"pnl"`` columns.
+
+    Returns:
+        DataFrame indexed by ``signal`` with columns ``trades``,
+        ``winrate``, ``pnl_total``, ``pnl_avg``.
+    """
+    return pnl_by_signal(df)
