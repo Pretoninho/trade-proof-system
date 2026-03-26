@@ -160,6 +160,106 @@ The Streamlit dashboard provides a Bloomberg-style interface:
 
 ---
 
+## 🌐 API Reference
+
+### Binance (OHLCV market data)
+
+Accessed indirectly through [ccxt](https://github.com/ccxt/ccxt) with `enableRateLimit=True` for automatic back-off.
+
+| Item | Detail |
+|------|--------|
+| **Spot klines** | `GET https://api.binance.com/api/v3/klines` |
+| **Futures klines** | `GET https://fapi.binance.com/fapi/v1/klines` |
+| **Auth required** | No — public endpoint |
+| **Max candles/request** | 1 500 |
+| **Rate limit** | 1 200 request-weight / minute per IP |
+| **Klines weight** | 1 (`limit` < 100) · 2 (100–499) · 5 (≥ 500) |
+| **HTTP 429** | Temporary throttle; HTTP 418 for repeated violations |
+| **Docs** | https://developers.binance.com/docs/binance-spot-api-docs/rest-api |
+
+**Key query parameters:**
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `symbol` | Trading pair (no slash) | `BTCUSDT` |
+| `interval` | Candle interval | `1m` `5m` `15m` `1h` `4h` `1d` |
+| `limit` | Number of candles (default 500, max 1 500) | `500` |
+| `startTime` | Start timestamp in ms | `1700000000000` |
+| `endTime` | End timestamp in ms | `1700086400000` |
+
+---
+
+### Deribit (options & DVOL data)
+
+All endpoints are public and require no authentication for market data.
+
+| Item | Detail |
+|------|--------|
+| **Base URL** | `https://www.deribit.com/api/v2` |
+| **Auth required** | No — public endpoints only |
+| **Rate limit** | ~20 requests/second (sustained); burst up to 200 credits |
+| **Refill rate** | 20 credits/second |
+| **HTTP 429** | `too_many_requests` error when credits exhausted |
+| **Docs** | https://docs.deribit.com |
+| **Rate limit docs** | https://docs.deribit.com/articles/rate-limits |
+
+#### `GET /public/get_volatility_index_data`
+
+Returns DVOL (Deribit Volatility Index) OHLC candles.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `currency` | string | `"BTC"` or `"ETH"` |
+| `start_timestamp` | integer | Start time in milliseconds |
+| `end_timestamp` | integer | End time in milliseconds |
+| `resolution` | string | Candle size — see table below |
+
+**Supported `resolution` values:**
+
+| Value | Period |
+|-------|--------|
+| `"1"` | 1 second |
+| `"60"` | 1 minute |
+| `"3600"` | 1 hour |
+| `"43200"` | 12 hours |
+| `"1D"` | 1 day |
+
+**Response** — `result.data`: array of `[timestamp_ms, open, high, low, close]`
+
+#### `GET /public/get_instruments`
+
+Lists all tradable instruments (options, futures, perpetuals).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `currency` | string | `"BTC"` or `"ETH"` |
+| `kind` | string | `"option"` · `"future"` · `"spot"` · `"perpetual"` |
+| `expired` | boolean | Include expired instruments (`false` = active only) |
+
+#### `GET /public/ticker`
+
+Returns a real-time snapshot for a single instrument (bid, ask, mark price, IV, Greeks, OI).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `instrument_name` | string | e.g. `"BTC-29MAR24-40000-C"` |
+
+**Key response fields:**
+
+| Field | Description |
+|-------|-------------|
+| `best_bid_price` | Best bid price |
+| `best_ask_price` | Best ask price |
+| `mark_price` | Mark (fair) price used for PnL |
+| `mark_iv` | Implied volatility at mark price (annualised %) |
+| `open_interest` | Number of open contracts |
+| `greeks.delta` | Δ — sensitivity to underlying price |
+| `greeks.gamma` | Γ — sensitivity of delta |
+| `greeks.vega` | V — sensitivity to implied volatility |
+| `greeks.theta` | Θ — time-decay per day |
+
+---
+
 ## 🔮 Roadmap
 
 | Feature                            | Status      |
