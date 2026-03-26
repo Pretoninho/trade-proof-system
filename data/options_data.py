@@ -2,19 +2,7 @@
 # Fetch options / volatility data from the Deribit public REST API.
 #
 # Deribit exposes a free, unauthenticated REST API for market data:
-#   Base URL : https://www.deribit.com/api/v2
-#   Endpoints used:
-#     GET /public/get_volatility_index_data  — DVOL OHLC time-series
-#     GET /public/get_instruments            — active instrument list
-#     GET /public/ticker                     — per-instrument snapshot
-#
-# Rate limits (public REST, per IP):
-#   ~20 requests / second sustained; burst up to 200 credits.
-#   Each standard request costs 1 credit (20 credits/s refill rate).
-#   Exceeding the limit returns HTTP 429 / error code "too_many_requests".
-#   Reference: https://docs.deribit.com/articles/rate-limits
-
-import time
+#   https://www.deribit.com/api/v2/public/<method>
 
 import requests
 import pandas as pd
@@ -36,28 +24,19 @@ def get_dvol(currency: str = DERIBIT_CURRENCY) -> float:
     DVOL is Deribit's implied-volatility index, analogous to the VIX for
     crypto.  It is expressed as an **annualised percentage** (e.g. 65.2).
 
-    Uses a 2-day rolling window at daily resolution so that only the minimum
-    required data is transferred over the wire.
-
-    Endpoint: ``GET /public/get_volatility_index_data``
-
     Args:
         currency: ``"BTC"`` or ``"ETH"``.
 
     Returns:
         DVOL value as a float (annualised %).
     """
-    now      = pd.Timestamp.utcnow()
-    end_ms   = int(now.timestamp() * 1_000)
-    start_ms = int((now - pd.Timedelta(days=2)).timestamp() * 1_000)
-
     data = _get("get_volatility_index_data", {
-        "currency":        currency,
-        "start_timestamp": start_ms,
-        "end_timestamp":   end_ms,
-        "resolution":      "1D",
+        "currency": currency,
+        "start_timestamp": 0,
+        "end_timestamp": 9_999_999_999_999,
+        "resolution": "1D",
     })
-    # The API returns a list of [timestamp (ms), open, high, low, close] arrays.
+    # The API returns a list of [timestamp, open, high, low, close] arrays.
     # We return the most-recent close value.
     return float(data["data"][-1][4])
 
@@ -73,23 +52,19 @@ def get_dvol_history(
     requested *resolution*.  Useful for vol-crush detection and for comparing
     implied vol against realised vol over time.
 
-    Endpoint: ``GET /public/get_volatility_index_data``
-
     Args:
         currency:   ``"BTC"`` or ``"ETH"``.
         days:       How many calendar days of history to retrieve (default 30).
-        resolution: Candle resolution in full seconds or the keyword ``"1D"``.
-                    Supported values: ``"1"`` (1 s), ``"60"`` (1 min),
-                    ``"3600"`` (1 h), ``"43200"`` (12 h), ``"1D"`` (1 day).
+        resolution: Candle resolution — ``"1D"``, ``"1"`` (1 min), ``"60"``
+                    (1 h), etc.  See Deribit docs for supported values.
 
     Returns:
         DataFrame indexed by UTC timestamp with columns:
         ``open``, ``high``, ``low``, ``close``.
         ``close`` is the DVOL value at the end of each period (annualised %).
     """
-    now      = pd.Timestamp.utcnow()
-    end_ms   = int(now.timestamp() * 1_000)
-    start_ms = int((now - pd.Timedelta(days=days)).timestamp() * 1_000)
+    end_ms   = int(pd.Timestamp.utcnow().timestamp() * 1_000)
+    start_ms = int((pd.Timestamp.utcnow() - pd.Timedelta(days=days)).timestamp() * 1_000)
 
     data = _get("get_volatility_index_data", {
         "currency":        currency,
@@ -109,8 +84,6 @@ def get_dvol_history(
 def get_instruments(currency: str = DERIBIT_CURRENCY, kind: str = "option") -> pd.DataFrame:
     """Return all active instruments for *currency* of the given *kind*.
 
-    Endpoint: ``GET /public/get_instruments``
-
     Args:
         currency: ``"BTC"`` or ``"ETH"``.
         kind:     ``"option"``, ``"future"``, or ``"spot"``.
@@ -127,11 +100,6 @@ def get_option_chain(currency: str = DERIBIT_CURRENCY) -> pd.DataFrame:
 
     Iterates over active option instruments and fetches their current ticker
     data (bid, ask, mark price, IV, Greeks, open interest).
-
-    Endpoint: ``GET /public/ticker``
-
-    A 50 ms sleep is inserted between consecutive ticker requests to stay
-    within Deribit's public rate limit (~20 requests/second sustainable).
 
     Args:
         currency: ``"BTC"`` or ``"ETH"``.
@@ -159,6 +127,4 @@ def get_option_chain(currency: str = DERIBIT_CURRENCY) -> pd.DataFrame:
         except (requests.RequestException, KeyError, ValueError):
             # Skip instruments whose ticker cannot be fetched (e.g. expired or delisted)
             continue
-        # Respect Deribit public rate limit: ~20 req/s → 50 ms between requests
-        time.sleep(0.05)
     return pd.DataFrame(rows)
