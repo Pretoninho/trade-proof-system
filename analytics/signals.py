@@ -8,6 +8,7 @@ from typing import TypedDict
 import pandas as pd
 
 from models.risk import vol_adjusted_size
+from analytics.event_analysis import EventSignal
 
 
 # ── Volatility / signal thresholds ────────────────────────────────────────────
@@ -149,3 +150,55 @@ def advanced_signal(
         )
 
     return {"signal": "NO TRADE"}
+
+
+# ── Event-driven signal (timing layer) ────────────────────────────────────────
+
+class EventDrivenSignal(TypedDict):
+    signal:     str
+    reason:     str
+    confidence: str
+
+
+def event_driven_signal(
+    vol_sig: VolCrushSignal | dict,
+    event_signals: list[EventSignal],
+) -> EventDrivenSignal | VolCrushSignal | dict:
+    """Overlay event timing on top of the existing volatility signal.
+
+    Priority:
+
+    1. **POST EVENT** proximity → override with *SELL VOL* (vol crush window).
+    2. **PRE  EVENT** proximity → override with *WAIT / BUY VOL* (vol building).
+    3. No relevant event        → fall back to the original *vol_sig*.
+
+    Only HIGH-impact events trigger a confidence of ``"HIGH"``; MEDIUM-impact
+    events yield ``"MEDIUM"`` confidence for PRE-EVENT signals.
+
+    Args:
+        vol_sig:       Base volatility signal from :func:`vol_crush_signal` or
+                       :func:`vol_signal`.
+        event_signals: Output of
+                       :func:`~analytics.event_analysis.event_proximity_signal`.
+
+    Returns:
+        :class:`EventDrivenSignal` when an event overrides the base signal,
+        or the original *vol_sig* dict when no event is in range.
+    """
+    for event in event_signals:
+        if "POST EVENT" in event["signal"]:
+            return EventDrivenSignal(
+                signal="SELL VOL",
+                reason=f"Vol crush après {event['event']} (J+{event['dte']})",
+                confidence="HIGH" if event["impact"] == "HIGH" else "MEDIUM",
+            )
+
+    for event in event_signals:
+        if "PRE EVENT" in event["signal"]:
+            return EventDrivenSignal(
+                signal="WAIT / BUY VOL",
+                reason=f"Anticipation événement {event['event']} (J-{event['dte']})",
+                confidence="MEDIUM",
+            )
+
+    return vol_sig
