@@ -27,6 +27,9 @@ from models.probability import probability_move, probability_range
 from models.backtest import backtest_vol_strategy, performance_metrics
 from models.greeks import delta_call, vega
 from models.risk import position_size
+from models.tracking import create_signal_record, update_trade
+from models.scoring import compute_score
+from storage.database import save_signal, load_signals, DB_FILE
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -316,3 +319,92 @@ with rm_col2:
         )
     else:
         st.warning("Set a non-zero Implied Volatility in the sidebar to compute Greeks.")
+
+# ── Track Record ──────────────────────────────────────────────────────────────
+st.header("🏆 Track Record")
+
+with st.expander("➕ Log a new signal", expanded=False):
+    with st.form("log_signal_form"):
+        log_price    = st.number_input("Entry price", min_value=0.01, value=float(price), format="%.2f")
+        log_signal   = st.selectbox("Signal", ["SELL VOL", "BUY VOL", "NEUTRAL"])
+        log_strategy = st.selectbox("Strategy", ["vol_crush", "event", "backtest", "manual"])
+        submitted    = st.form_submit_button("Save signal")
+
+    if submitted:
+        record = create_signal_record(log_price, log_signal, log_strategy)
+        save_signal(record)
+        st.success("Signal saved ✅")
+
+df_signals = load_signals()
+
+if not df_signals.empty:
+    # ── Close an open trade ───────────────────────────────────────────────
+    open_mask = df_signals["pnl"].isna()
+    if open_mask.any():
+        st.subheader("📤 Close an open trade")
+        open_indices = df_signals.index[open_mask].tolist()
+        selected_idx = st.selectbox(
+            "Select trade to close (row index)",
+            options=open_indices,
+            format_func=lambda i: (
+                f"#{i} — {df_signals.loc[i, 'date']}  "
+                f"{df_signals.loc[i, 'signal']} @ {df_signals.loc[i, 'price_entry']}"
+            ),
+        )
+        exit_price = st.number_input(
+            "Exit price", min_value=0.01, value=float(price), format="%.2f", key="exit_price"
+        )
+        if st.button("Close trade"):
+            entry  = float(df_signals.loc[selected_idx, "price_entry"])
+            signal = str(df_signals.loc[selected_idx, "signal"])
+            # PnL direction depends on the original signal:
+            # SELL VOL / short bias → profit when price falls (entry - exit)
+            # BUY VOL  / long bias  → profit when price rises (exit - entry)
+            if "SELL" in signal.upper():
+                pnl = entry - exit_price
+            else:
+                pnl = exit_price - entry
+            df_signals = update_trade(df_signals, selected_idx, exit_price, pnl)
+            df_signals.to_csv(DB_FILE, index=False)
+            st.success(f"Trade #{selected_idx} closed — PnL: {pnl:+.2f} ✅")
+            st.rerun()
+
+    # ── Score card ────────────────────────────────────────────────────────
+    stats = compute_score(df_signals)
+
+    if stats["trades"] > 0:
+        st.subheader("📊 Performance scorecard")
+        sc_col1, sc_col2, sc_col3, sc_col4 = st.columns(4)
+        sc_col1.metric("Trades",       stats["trades"])
+        sc_col2.metric("Winrate",      f"{stats['winrate']:.2%}")
+        sc_col3.metric("PnL total",    f"{stats['total_pnl']:+.2f}")
+        sc_col4.metric("Avg PnL",      f"{stats['avg_pnl']:+.2f}")
+
+        sc_col5, sc_col6, sc_col7, sc_col8 = st.columns(4)
+        sc_col5.metric(
+            "Sharpe",
+            f"{stats['sharpe']:.2f}" if stats["sharpe"] is not None else "—",
+        )
+        sc_col6.metric("Max Drawdown", f"{stats['max_drawdown']:.2f}")
+        pf_label = (
+            "∞" if stats["profit_factor"] == float("inf") else f"{stats['profit_factor']:.2f}"
+        )
+        sc_col7.metric("Profit Factor", pf_label)
+        sc_col8.metric("Expectancy",   f"{stats['expectancy']:+.2f}")
+
+        # ── Equity curve ──────────────────────────────────────────────────
+        closed_pnl = (
+            df_signals.dropna(subset=["pnl"])
+            .assign(pnl=lambda d: pd.to_numeric(d["pnl"], errors="coerce"))
+            .dropna(subset=["pnl"])
+        )
+        if not closed_pnl.empty:
+            st.subheader("📈 Equity curve")
+            st.line_chart(closed_pnl["pnl"].cumsum().reset_index(drop=True), use_container_width=True)
+    else:
+        st.info("No closed trades yet — log a signal and close it to see your scorecard.")
+
+    with st.expander("🗃️ All signals"):
+        st.dataframe(df_signals, use_container_width=True)
+else:
+    st.info("No signals recorded — use the form above to log your first signal.")
