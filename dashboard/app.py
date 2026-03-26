@@ -13,10 +13,14 @@ from config.settings import (
     DEFAULT_TIMEFRAME,
     DEFAULT_LIMIT,
     DEFAULT_TARGET_PRICE_OFFSET,
+    DERIBIT_CURRENCY,
+    RV_ROLLING_WINDOW,
 )
 from data.market_data import get_ohlcv
+from data.options_data import get_dvol_history
 from analytics.volatility import realized_volatility, expected_move, rolling_realized_volatility
-from analytics.signals import vol_signal, trend_signal
+from analytics.signals import vol_signal, trend_signal, vol_crush_signal
+from analytics.vol_crush import vol_crush_metrics
 from models.probability import probability_move, probability_range
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -34,6 +38,8 @@ with st.sidebar:
     symbol    = st.text_input("Symbol",    value=DEFAULT_SYMBOL)
     timeframe = st.selectbox("Timeframe", ["1m", "5m", "15m", "1h", "4h", "1d"], index=3)
     limit     = st.slider("Candles", min_value=50, max_value=1000, value=DEFAULT_LIMIT, step=50)
+    dvol_currency = st.selectbox("DVOL Currency", ["BTC", "ETH"], index=0)
+    dvol_history_days = st.slider("DVOL History (days)", min_value=7, max_value=90, value=30)
     implied_vol_pct = st.number_input(
         "Implied Volatility — IV % (annualised)",
         min_value=0.0,
@@ -80,6 +86,77 @@ trend_color = "🟢" if ts == "BULLISH"  else ("🔴" if ts == "BEARISH"  else "
 sig_col1.metric("Vol Signal",   f"{vol_color} {vs}")
 sig_col2.metric("Trend Signal", f"{trend_color} {ts}")
 
+# ── DVOL & Vol Crush ──────────────────────────────────────────────────────────
+st.subheader(f"🌋 DVOL & Vol Crush — {dvol_currency}")
+
+with st.spinner(f"Fetching {dvol_currency} DVOL history ({dvol_history_days}d)…"):
+    try:
+        dvol_df = get_dvol_history(currency=dvol_currency, days=dvol_history_days)
+    except Exception as exc:
+        st.error(f"Failed to fetch DVOL: {exc}")
+        dvol_df = None
+
+if dvol_df is not None and not dvol_df.empty:
+    metrics = vol_crush_metrics(dvol_df)
+    crush_sig = vol_crush_signal(metrics["crush_detected"], metrics["current"])
+
+    # ── DVOL key metrics ──────────────────────────────────────────────────
+    dv_col1, dv_col2, dv_col3, dv_col4 = st.columns(4)
+
+    dv_col1.metric(
+        f"DVOL {dvol_currency} (current)",
+        f"{metrics['current']:.1f}%",
+        delta=f"{metrics['drop_1d'] * 100:.1f}% (1d)",
+    )
+    dv_col2.metric(
+        "DVOL 30d avg",
+        f"{metrics['avg_30d']:.1f}%",
+        delta=f"{metrics['pct_from_avg'] * 100:+.1f}% vs avg",
+    )
+    dv_col3.metric(
+        "7d change",
+        f"{metrics['drop_7d'] * 100:+.1f}%",
+    )
+    regime_label = "🔴 Elevated" if metrics["is_elevated"] else "🟢 Normal"
+    dv_col4.metric("Vol Regime", regime_label)
+
+    # ── Vol crush signal ──────────────────────────────────────────────────
+    crush_color = {
+        "HIGH":   "🔴",
+        "MEDIUM": "🟡",
+        "LOW":    "⚪",
+    }.get(crush_sig["confidence"], "⚪")
+
+    cs_col1, cs_col2, cs_col3 = st.columns(3)
+    cs_col1.metric("Signal",     f"{crush_color} {crush_sig['signal']}")
+    cs_col2.metric("Strategy",   crush_sig["strategy"])
+    cs_col3.metric("Confidence", crush_sig["confidence"])
+
+    st.caption(f"💡 {crush_sig['rationale']}")
+
+    # ── DVOL vs Realised Vol chart ─────────────────────────────────────────
+    st.subheader("📉 DVOL vs Realised Volatility")
+
+    rv_daily = (
+        rolling_realized_volatility(df, window=RV_ROLLING_WINDOW)
+        .resample("1D")
+        .last()
+        .dropna()
+        * 100  # → %
+    )
+    dvol_close = dvol_df["close"]
+
+    combined = pd.DataFrame({
+        f"DVOL {dvol_currency}":   dvol_close,
+        "Realised Vol 24h (%)": rv_daily,
+    }).dropna(how="all")
+
+    if not combined.empty:
+        st.line_chart(combined, use_container_width=True)
+
+    with st.expander(f"🗃️ Raw DVOL data ({dvol_currency})"):
+        st.dataframe(dvol_df.tail(30), use_container_width=True)
+
 # ── Probability calculator ────────────────────────────────────────────────────
 st.subheader("🧮 Probability Calculator")
 
@@ -116,8 +193,8 @@ with prob_col2:
 st.subheader("📈 Price Chart")
 st.line_chart(df["close"], use_container_width=True)
 
-st.subheader("📉 Rolling Realised Volatility (24-candle)")
-rv_series = rolling_realized_volatility(df, window=24) * 100   # → %
+st.subheader(f"📉 Rolling Realised Volatility ({RV_ROLLING_WINDOW}-candle)")
+rv_series = rolling_realized_volatility(df, window=RV_ROLLING_WINDOW) * 100   # → %
 st.line_chart(rv_series.dropna(), use_container_width=True)
 
 # ── Raw data ──────────────────────────────────────────────────────────────────

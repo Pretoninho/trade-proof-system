@@ -41,6 +41,46 @@ def get_dvol(currency: str = DERIBIT_CURRENCY) -> float:
     return float(data["data"][-1][4])
 
 
+def get_dvol_history(
+    currency: str = DERIBIT_CURRENCY,
+    days: int = 30,
+    resolution: str = "1D",
+) -> pd.DataFrame:
+    """Return a historical DVOL time-series as a DataFrame.
+
+    Fetches the last *days* calendar days of DVOL data from Deribit at the
+    requested *resolution*.  Useful for vol-crush detection and for comparing
+    implied vol against realised vol over time.
+
+    Args:
+        currency:   ``"BTC"`` or ``"ETH"``.
+        days:       How many calendar days of history to retrieve (default 30).
+        resolution: Candle resolution — ``"1D"``, ``"1"`` (1 min), ``"60"``
+                    (1 h), etc.  See Deribit docs for supported values.
+
+    Returns:
+        DataFrame indexed by UTC timestamp with columns:
+        ``open``, ``high``, ``low``, ``close``.
+        ``close`` is the DVOL value at the end of each period (annualised %).
+    """
+    end_ms   = int(pd.Timestamp.utcnow().timestamp() * 1_000)
+    start_ms = int((pd.Timestamp.utcnow() - pd.Timedelta(days=days)).timestamp() * 1_000)
+
+    data = _get("get_volatility_index_data", {
+        "currency":        currency,
+        "start_timestamp": start_ms,
+        "end_timestamp":   end_ms,
+        "resolution":      resolution,
+    })
+
+    # Each element: [timestamp_ms, open, high, low, close]
+    rows = data["data"]
+    df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+    df.set_index("timestamp", inplace=True)
+    return df
+
+
 def get_instruments(currency: str = DERIBIT_CURRENCY, kind: str = "option") -> pd.DataFrame:
     """Return all active instruments for *currency* of the given *kind*.
 

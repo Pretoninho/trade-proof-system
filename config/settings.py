@@ -15,6 +15,7 @@ ANNUALISATION_FACTOR = 365 * 24  # hourly data
 DERIBIT_BASE_URL = "https://www.deribit.com/api/v2"
 DERIBIT_CURRENCY = "BTC"        # BTC or ETH
 
-# ── Dashboard ─────────────────────────────────────────────────────────────────
+# ── Volatility ────────────────────────────────────────────────────────────────
+RV_ROLLING_WINDOW = 24           # 24-candle rolling window for realised vol (≈ 24 h on 1 h data)
 DASHBOARD_TITLE = "Mini Bloomberg Crypto"
 DEFAULT_TARGET_PRICE_OFFSET = 0.05   # 5 % above current price as default
