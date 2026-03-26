@@ -66,11 +66,18 @@ with st.sidebar:
     horizon_days = st.slider("Horizon (days)", min_value=1, max_value=30, value=1)
 
 # ── Load data ─────────────────────────────────────────────────────────────────
+from config.settings import EXCHANGE_FALLBACKS  # noqa: E402
+
 with st.spinner("Fetching market data…"):
     try:
         df = get_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
     except Exception as exc:
-        st.error(f"Failed to fetch data: {exc}")
+        # Build the same candidate list that get_ohlcv() would have tried.
+        _tried = ["binance"] + [e for e in EXCHANGE_FALLBACKS if e != "binance"]
+        st.error(
+            f"Could not fetch market data for **{symbol}** from any available exchange "
+            f"({', '.join(_tried)}).\n\n**Details:** {exc}"
+        )
         st.stop()
 
 price = float(df["close"].iloc[-1])

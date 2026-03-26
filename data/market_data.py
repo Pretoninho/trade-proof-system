@@ -21,7 +21,7 @@
 import ccxt
 import pandas as pd
 
-from config.settings import DEFAULT_EXCHANGE, DEFAULT_SYMBOL, DEFAULT_TIMEFRAME, DEFAULT_LIMIT
+from config.settings import DEFAULT_EXCHANGE, DEFAULT_SYMBOL, DEFAULT_TIMEFRAME, DEFAULT_LIMIT, EXCHANGE_FALLBACKS
 
 
 def get_exchange(exchange_id: str = DEFAULT_EXCHANGE) -> ccxt.Exchange:
@@ -38,6 +38,11 @@ def get_ohlcv(
 ) -> pd.DataFrame:
     """Fetch OHLCV candles and return a tidy DataFrame.
 
+    Tries ``exchange_id`` first, then each exchange in ``EXCHANGE_FALLBACKS``
+    in order.  This ensures the app keeps working when the primary exchange
+    is temporarily unavailable (e.g. HTTP 451 geo-restriction from Binance on
+    Streamlit Cloud).
+
     Delegates to the ccxt ``fetch_ohlcv`` method which maps to:
     ``GET /api/v3/klines`` (Binance Spot) or
     ``GET /fapi/v1/klines`` (Binance Futures).
@@ -50,11 +55,28 @@ def get_ohlcv(
 
     Returns:
         DataFrame with columns: timestamp, open, high, low, close, volume.
-    """
-    exchange = get_exchange(exchange_id)
-    raw = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
 
-    df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-    df.set_index("timestamp", inplace=True)
-    return df
+    Raises:
+        ccxt.ExchangeError: if all candidate exchanges fail.
+    """
+    # Build a deduplicated list: preferred exchange first, then fallbacks.
+    candidates: list[str] = [exchange_id] + [e for e in EXCHANGE_FALLBACKS if e != exchange_id]
+
+    last_exc: Exception | None = None
+    for eid in candidates:
+        try:
+            exchange = get_exchange(eid)
+            raw = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+
+            df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df.set_index("timestamp", inplace=True)
+            return df
+        except Exception as exc:  # noqa: BLE001 — try every fallback before giving up
+            last_exc = exc
+            continue
+
+    raise RuntimeError(
+        f"All exchanges failed for {symbol} ({timeframe}): {', '.join(candidates)}. "
+        f"Last error: {last_exc}"
+    ) from last_exc

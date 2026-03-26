@@ -2,8 +2,10 @@
 # Central configuration for the trade-proof-system
 
 # ── Exchange ──────────────────────────────────────────────────────────────────
-DEFAULT_EXCHANGE = "binance"
-DEFAULT_SYMBOL   = "BTC/USDT"
+DEFAULT_EXCHANGE    = "binance"
+# Exchanges tried in order when the primary one is unavailable (e.g. geo-block).
+EXCHANGE_FALLBACKS  = ["binance", "kraken", "bybit", "kucoin"]
+DEFAULT_SYMBOL      = "BTC/USDT"
 DEFAULT_TIMEFRAME = "1h"
 DEFAULT_LIMIT    = 500          # Number of OHLCV candles to fetch
 
