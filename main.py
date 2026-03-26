@@ -8,10 +8,12 @@
 
 import argparse
 
-from config.settings import DEFAULT_SYMBOL, DEFAULT_TIMEFRAME, DEFAULT_LIMIT
+from config.settings import DEFAULT_SYMBOL, DEFAULT_TIMEFRAME, DEFAULT_LIMIT, DERIBIT_CURRENCY
 from data.market_data import get_ohlcv
+from data.options_data import get_dvol_history
 from analytics.volatility import realized_volatility, expected_move
-from analytics.signals import vol_signal, trend_signal
+from analytics.signals import vol_signal, trend_signal, vol_crush_signal
+from analytics.vol_crush import vol_crush_metrics
 from models.probability import probability_move, probability_range
 
 
@@ -24,10 +26,15 @@ def parse_args() -> argparse.Namespace:
                         help="Implied volatility in %% (e.g. 70 for 70%%). "
                              "If omitted the script uses realised vol as a proxy.")
     parser.add_argument("--horizon",   default=1, type=float, help="Horizon in days (default: 1)")
+    parser.add_argument("--dvol-currency", default=DERIBIT_CURRENCY,
+                        help="DVOL currency to fetch from Deribit (BTC or ETH, default: BTC)")
+    parser.add_argument("--dvol-days", default=30, type=int,
+                        help="Days of DVOL history to analyse (default: 30)")
     return parser.parse_args()
 
 
-def run(symbol: str, timeframe: str, limit: int, iv_pct: float | None, horizon: float) -> None:
+def run(symbol: str, timeframe: str, limit: int, iv_pct: float | None, horizon: float,
+        dvol_currency: str = DERIBIT_CURRENCY, dvol_days: int = 30) -> None:
     print(f"\n{'=' * 60}")
     print(f"  Trade Proof System — {symbol} | {timeframe} | last {limit} candles")
     print(f"{'=' * 60}\n")
@@ -56,7 +63,28 @@ def run(symbol: str, timeframe: str, limit: int, iv_pct: float | None, horizon: 
     print(f"   Vol   signal : {vs}")
     print(f"   Trend signal : {ts}")
 
-    # ── 4. Probabilities ──────────────────────────────────────────────────────
+    # ── 4. DVOL & Vol Crush ───────────────────────────────────────────────────
+    print(f"\n🌋 DVOL & Vol Crush ({dvol_currency}, last {dvol_days}d)")
+    try:
+        dvol_df  = get_dvol_history(currency=dvol_currency, days=dvol_days)
+        metrics  = vol_crush_metrics(dvol_df)
+        crush_sig = vol_crush_signal(metrics["crush_detected"], metrics["current"])
+
+        print(f"   Current DVOL   : {metrics['current']:.1f}%")
+        print(f"   30d avg DVOL   : {metrics['avg_30d']:.1f}%")
+        print(f"   vs avg         : {metrics['pct_from_avg'] * 100:+.1f}%")
+        print(f"   1d change      : {metrics['drop_1d'] * 100:+.1f}%")
+        print(f"   7d change      : {metrics['drop_7d'] * 100:+.1f}%")
+        print(f"   Vol regime     : {'ELEVATED' if metrics['is_elevated'] else 'NORMAL'}")
+        print(f"   Crush detected : {metrics['crush_detected']}")
+        print(f"\n   ⚡ Signal       : {crush_sig['signal']}")
+        print(f"   Strategy       : {crush_sig['strategy']}")
+        print(f"   Confidence     : {crush_sig['confidence']}")
+        print(f"   Rationale      : {crush_sig['rationale']}")
+    except Exception as exc:
+        print(f"   ⚠️  Could not fetch DVOL: {exc}")
+
+    # ── 5. Probabilities ──────────────────────────────────────────────────────
     target_up   = price * 1.05
     target_down = price * 0.95
 
@@ -80,6 +108,8 @@ def main() -> None:
         limit=args.limit,
         iv_pct=args.iv,
         horizon=args.horizon,
+        dvol_currency=args.dvol_currency,
+        dvol_days=args.dvol_days,
     )
 
 
