@@ -12,8 +12,10 @@ from config.settings import DEFAULT_SYMBOL, DEFAULT_TIMEFRAME, DEFAULT_LIMIT, DE
 from data.market_data import get_ohlcv
 from data.options_data import get_dvol_history
 from analytics.volatility import realized_volatility, expected_move
-from analytics.signals import vol_signal, trend_signal, vol_crush_signal
+from analytics.signals import vol_signal, trend_signal, vol_crush_signal, event_driven_signal
 from analytics.vol_crush import vol_crush_metrics
+from analytics.event_analysis import event_proximity_signal
+from data.events_data import get_upcoming_events
 from models.probability import probability_move, probability_range
 
 
@@ -96,6 +98,30 @@ def run(symbol: str, timeframe: str, limit: int, iv_pct: float | None, horizon: 
     print(f"   P(price ≥ {target_up:,.0f}) = {p_up:.2%}")
     print(f"   P(price ≤ {target_down:,.0f}) = {p_down:.2%}")
     print(f"   P(price in [{target_down:,.0f} – {target_up:,.0f}]) = {p_range:.2%}")
+
+    print(f"\n{'=' * 60}\n")
+
+    # ── 6. Event Driven Strategy ──────────────────────────────────────────────
+    print("📅 Event Driven Strategy")
+    events = get_upcoming_events()
+    event_signals = event_proximity_signal(events)
+
+    if event_signals:
+        for es in event_signals:
+            print(
+                f"   {es['signal']:40s}  "
+                f"{es['event']:20s}  J-{es['dte']}  impact={es['impact']}"
+            )
+    else:
+        print("   Aucun événement dans la fenêtre 0–7 jours.")
+
+    final_sig = event_driven_signal(
+        {"signal": vs, "confidence": "MEDIUM", "reason": "Base vol signal"},
+        event_signals,
+    )
+    print(f"\n   ⚡ Signal final  : {final_sig.get('signal', '—')}")
+    print(f"   Confidence      : {final_sig.get('confidence', '—')}")
+    print(f"   Raison          : {final_sig.get('reason', final_sig.get('rationale', '—'))}")
 
     print(f"\n{'=' * 60}\n")
 

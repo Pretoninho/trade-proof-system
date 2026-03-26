@@ -19,8 +19,10 @@ from config.settings import (
 from data.market_data import get_ohlcv
 from data.options_data import get_dvol_history
 from analytics.volatility import realized_volatility, expected_move, rolling_realized_volatility
-from analytics.signals import vol_signal, trend_signal, vol_crush_signal
+from analytics.signals import vol_signal, trend_signal, vol_crush_signal, event_driven_signal
 from analytics.vol_crush import vol_crush_metrics
+from analytics.event_analysis import event_proximity_signal
+from data.events_data import get_upcoming_events
 from models.probability import probability_move, probability_range
 from models.backtest import backtest_vol_strategy, performance_metrics
 from models.greeks import delta_call, vega
@@ -88,6 +90,47 @@ trend_color = "🟢" if ts == "BULLISH"  else ("🔴" if ts == "BEARISH"  else "
 
 sig_col1.metric("Vol Signal",   f"{vol_color} {vs}")
 sig_col2.metric("Trend Signal", f"{trend_color} {ts}")
+
+# ── Event Driven Strategy ─────────────────────────────────────────────────────
+st.header("📅 Event Driven Strategy")
+
+events = get_upcoming_events()
+event_signals = event_proximity_signal(events)
+
+# Compute final signal: event timing overrides base vol signal when relevant
+final_signal = event_driven_signal(
+    {"signal": vs, "confidence": "MEDIUM", "reason": "Base vol signal"},
+    event_signals,
+)
+
+ev_col1, ev_col2 = st.columns(2)
+
+with ev_col1:
+    st.subheader("Événements détectés")
+    if event_signals:
+        for es in event_signals:
+            badge = "🔴" if "POST EVENT" in es["signal"] else "🟡"
+            impact_badge = "🔥" if es["impact"] == "HIGH" else "⚡"
+            st.write(
+                f"{badge} **{es['event']}** — {es['signal']} "
+                f"(J-{es['dte']}) "
+                f"{impact_badge} {es['impact']}"
+            )
+    else:
+        st.info("Aucun événement dans la fenêtre 0–7 jours.")
+
+with ev_col2:
+    st.subheader("Signal final (event-driven)")
+    final_sig_label = final_signal.get("signal", "—")
+    final_confidence = final_signal.get("confidence", "—")
+    final_reason = final_signal.get("reason", final_signal.get("rationale", "—"))
+
+    confidence_color = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}.get(
+        final_confidence, "⚪"
+    )
+    st.metric("Signal", f"{confidence_color} {final_sig_label}")
+    st.metric("Confidence", final_confidence)
+    st.caption(f"💡 {final_reason}")
 
 # ── DVOL & Vol Crush ──────────────────────────────────────────────────────────
 st.subheader(f"🌋 DVOL & Vol Crush — {dvol_currency}")
