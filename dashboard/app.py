@@ -22,6 +22,7 @@ from analytics.volatility import realized_volatility, expected_move, rolling_rea
 from analytics.signals import vol_signal, trend_signal, vol_crush_signal
 from analytics.vol_crush import vol_crush_metrics
 from models.probability import probability_move, probability_range
+from models.backtest import backtest_vol_strategy, performance_metrics
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -200,3 +201,35 @@ st.line_chart(rv_series.dropna(), use_container_width=True)
 # ── Raw data ──────────────────────────────────────────────────────────────────
 with st.expander("🗃️ Raw OHLCV data"):
     st.dataframe(df.tail(50), use_container_width=True)
+
+# ── Backtest ──────────────────────────────────────────────────────────────────
+st.header("📐 Backtest Strategy")
+
+# Use the live DVOL snapshot as a constant proxy when real historical DVOL is
+# unavailable.  Replace with a true historical DVOL series for production use.
+if dvol_df is not None and not dvol_df.empty:
+    # Align historical DVOL to the price DataFrame by repeating the last value
+    # for any missing bars — a conservative fallback.
+    dvol_close_aligned = [float(dvol_df["close"].iloc[-1])] * len(df)
+else:
+    dvol_close_aligned = [implied_vol_pct] * len(df)
+
+with st.spinner("Running backtest…"):
+    pnl_series = backtest_vol_strategy(df, dvol_close_aligned)
+    stats = performance_metrics(pnl_series)
+
+st.subheader("📊 Performance")
+
+bt_col1, bt_col2, bt_col3, bt_col4 = st.columns(4)
+bt_col1.metric("Trades",       stats["trades"])
+bt_col2.metric("Winrate",      f"{stats['winrate']:.2%}")
+bt_col3.metric("PnL total",    stats["pnl_total"])
+bt_col4.metric("Max Drawdown", f"{stats['max_drawdown']:.0f}")
+
+st.line_chart(pnl_series.cumsum(), use_container_width=True)
+
+st.caption(
+    "⚠️ Simplified backtest: +1 / −1 scoring, no real option pricing, "
+    "no skew, no expiration. DVOL is the current snapshot repeated — "
+    "replace with real historical DVOL for production-grade results."
+)
