@@ -7,6 +7,8 @@ from typing import TypedDict
 
 import pandas as pd
 
+from models.risk import vol_adjusted_size
+
 
 # ── Volatility / signal thresholds ────────────────────────────────────────────
 ELEVATED_DVOL_THRESHOLD = 80     # DVOL level above which vol is considered expensive
@@ -107,3 +109,43 @@ def vol_crush_signal(is_crush: bool, dvol: float) -> VolCrushSignal:
         rationale=f"DVOL at {dvol:.1f} — no vol crush and no elevated regime. "
                   "Stand aside or look for long-vol setups.",
     )
+
+
+# ── Advanced signal (vol edge + risk sizing) ──────────────────────────────────
+
+class AdvancedSignal(TypedDict):
+    signal:   str
+    strategy: str
+    size:     float
+    risk:     str
+
+
+def advanced_signal(
+    realized_vol: float,
+    implied_vol: float,
+    account_size: float,
+) -> AdvancedSignal | dict[str, str]:
+    """Generate an advanced volatility signal with risk-adjusted position sizing.
+
+    Combines the implied vs realised vol edge with a volatility-adjusted
+    position size so every signal is immediately actionable.
+
+    Args:
+        realized_vol: Annualised realised volatility (decimal).
+        implied_vol:  Annualised implied volatility (decimal).
+        account_size: Total account equity.
+
+    Returns:
+        :class:`AdvancedSignal` dict when a trade is recommended, or
+        ``{"signal": "NO TRADE"}`` when there is no edge.
+    """
+    if implied_vol > realized_vol:
+        size = vol_adjusted_size(account_size, implied_vol)
+        return AdvancedSignal(
+            signal="SELL VOL",
+            strategy="Short Strangle",
+            size=size,
+            risk="CONTROLLED",
+        )
+
+    return {"signal": "NO TRADE"}

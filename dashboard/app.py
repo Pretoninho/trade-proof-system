@@ -23,6 +23,8 @@ from analytics.signals import vol_signal, trend_signal, vol_crush_signal
 from analytics.vol_crush import vol_crush_metrics
 from models.probability import probability_move, probability_range
 from models.backtest import backtest_vol_strategy, performance_metrics
+from models.greeks import delta_call, vega
+from models.risk import position_size
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -233,3 +235,41 @@ st.caption(
     "no skew, no expiration. DVOL is the current snapshot repeated — "
     "replace with real historical DVOL for production-grade results."
 )
+
+# ── Risk Management ───────────────────────────────────────────────────────────
+st.header("⚖️ Risk Management")
+
+rm_col1, rm_col2 = st.columns(2)
+
+with rm_col1:
+    st.subheader("Position Sizing")
+    account_size   = st.number_input("Capital ($)", min_value=100.0, value=10_000.0, step=500.0)
+    risk_per_trade = st.number_input("Risk per trade (%)", min_value=0.1, max_value=10.0,
+                                     value=2.0, step=0.1) / 100
+    stop_loss_pct  = st.number_input("Stop-loss (%)", min_value=0.1, max_value=50.0,
+                                     value=5.0, step=0.5) / 100
+
+    size = position_size(account_size, risk_per_trade, stop_loss_pct)
+    st.metric("Recommended position size", f"${size:,.2f}")
+    st.caption(
+        f"Risking {risk_per_trade * 100:.1f}% of ${account_size:,.0f} "
+        f"with a {stop_loss_pct * 100:.1f}% stop-loss."
+    )
+
+with rm_col2:
+    st.subheader("Greeks (ATM, 1-day expiry)")
+    # Use at-the-money strike, 1-day horizon, risk-free rate = 0, IV from sidebar.
+    time_to_expiry_1d = 1 / 365
+    if iv > 0:
+        delta_val = delta_call(price, price, time_to_expiry_1d, 0.0, iv)
+        vega_val  = vega(price, price, time_to_expiry_1d, 0.0, iv)
+        st.metric("Delta (call)", f"{delta_val:.4f}",
+                  help="$ change in call price per $1 move in spot.")
+        st.metric("Vega", f"{vega_val:.4f}",
+                  help="$ change in option price per 1-unit (decimal) change in IV. "
+                       "Multiply by 0.01 to get the $ change per 1% point move in IV.")
+        st.caption(
+            f"ATM strike = ${price:,.2f} | IV = {iv * 100:.1f}% | T = 1 day"
+        )
+    else:
+        st.warning("Set a non-zero Implied Volatility in the sidebar to compute Greeks.")
