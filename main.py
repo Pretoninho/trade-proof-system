@@ -32,6 +32,18 @@ def parse_args() -> argparse.Namespace:
                         help="DVOL currency to fetch from Deribit (BTC or ETH, default: BTC)")
     parser.add_argument("--dvol-days", default=30, type=int,
                         help="Days of DVOL history to analyse (default: 30)")
+    # ── Autonomous mode ───────────────────────────────────────────────────────
+    parser.add_argument(
+        "--schedule",
+        action="store_true",
+        help="Run the pipeline autonomously on a fixed interval (see --interval).",
+    )
+    parser.add_argument(
+        "--interval",
+        default=24.0,
+        type=float,
+        help="Scheduler interval in hours when --schedule is used (default: 24).",
+    )
     return parser.parse_args()
 
 
@@ -128,15 +140,20 @@ def run(symbol: str, timeframe: str, limit: int, iv_pct: float | None, horizon: 
 
 def main() -> None:
     args = parse_args()
-    run(
-        symbol=args.symbol,
-        timeframe=args.timeframe,
-        limit=args.limit,
-        iv_pct=args.iv,
-        horizon=args.horizon,
-        dvol_currency=args.dvol_currency,
-        dvol_days=args.dvol_days,
-    )
+
+    if args.schedule:
+        from automation.scheduler import start_scheduler  # noqa: PLC0415
+        start_scheduler(args.interval)
+    else:
+        run(
+            symbol=args.symbol,
+            timeframe=args.timeframe,
+            limit=args.limit,
+            iv_pct=args.iv,
+            horizon=args.horizon,
+            dvol_currency=args.dvol_currency,
+            dvol_days=args.dvol_days,
+        )
 
 
 if __name__ == "__main__":
