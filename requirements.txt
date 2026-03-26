@@ -1,0 +1,14 @@
+# Core data & exchange
+ccxt>=4.2.0
+requests>=2.31.0
+pandas>=2.0.0
+
+# Analytics / numerics
+numpy>=1.26.0
+scipy>=1.11.0
+
+# Dashboard
+streamlit>=1.32.0
+
+# Optional — notebook exploration
+# jupyter
