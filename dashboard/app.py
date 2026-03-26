@@ -408,3 +408,29 @@ if not df_signals.empty:
         st.dataframe(df_signals, use_container_width=True)
 else:
     st.info("No signals recorded — use the form above to log your first signal.")
+
+# ── Run Pipeline ──────────────────────────────────────────────────────────────
+st.header("🤖 Run Pipeline")
+
+st.caption(
+    "Trigger a full autonomous analysis cycle: data → volatility → signals → "
+    "storage → report."
+)
+
+if st.button("▶ Lancer analyse"):
+    with st.spinner("Running pipeline…"):
+        try:
+            from automation.pipeline import run_pipeline  # noqa: PLC0415
+            pipeline_result = run_pipeline(
+                symbol=symbol,
+                timeframe=timeframe,
+                limit=limit,
+                dvol_currency=dvol_currency,
+            )
+            st.success("Pipeline completed ✅")
+            st.subheader("Signal")
+            st.json(pipeline_result["signal"])
+            st.subheader("Report")
+            st.text(pipeline_result["report"])
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Pipeline failed: {exc}")
