@@ -97,7 +97,7 @@ def _get_coingecko_data(coin: str, days: int) -> pd.DataFrame:
 
     prices = response.json()["prices"]  # [[timestamp_ms, price], ...]
     df = pd.DataFrame(prices, columns=["timestamp", "close"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     df["open"]   = df["close"]
     df["high"]   = df["close"]
     df["low"]    = df["close"]
@@ -148,7 +148,7 @@ def get_ohlcv(
         exchange = get_exchange(exchange_id)
         raw = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
         df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
         df.set_index("timestamp", inplace=True)
         return df
     except ccxt.BaseError:
